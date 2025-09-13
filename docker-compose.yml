@@ -1,182 +1,162 @@
 version: '3.8'
 
 services:
-  # Redis for caching and session management
-  redis:
-    image: redis:7-alpine
-    container_name: acp-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-
-  # PostgreSQL for persistent data
-  postgres:
-    image: postgres:15-alpine
-    container_name: acp-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: android_platform
-      POSTGRES_USER: acp_user
-      POSTGRES_PASSWORD: acp_secure_password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
-
-  # Identity Manager Service
-  identity-manager:
+  # Android 14 ARM64 Container
+  android-14-arm64:
     build:
-      context: ./services/identity-manager
+      context: ./docker/android-14/arm64
       dockerfile: Dockerfile
-    container_name: acp-identity-manager
-    restart: unless-stopped
-    environment:
-      - DATABASE_URL=postgresql://acp_user:acp_secure_password@postgres:5432/android_platform
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      - postgres
-      - redis
-    volumes:
-      - ./config/device-profiles:/app/device-profiles
-      - ./data/android-instances:/app/instances
-
-  # Location Manager Service  
-  location-manager:
-    build:
-      context: ./services/location-manager
-      dockerfile: Dockerfile
-    container_name: acp-location-manager
-    restart: unless-stopped
-    environment:
-      - DATABASE_URL=postgresql://acp_user:acp_secure_password@postgres:5432/android_platform
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      - postgres
-      - redis
-    volumes:
-      - ./data/android-instances:/app/instances
-
-  # Network Manager Service
-  network-manager:
-    build:
-      context: ./services/network-manager
-      dockerfile: Dockerfile
-    container_name: acp-network-manager
-    restart: unless-stopped
-    environment:
-      - DATABASE_URL=postgresql://acp_user:acp_secure_password@postgres:5432/android_platform
-      - REDIS_URL=redis://redis:6379
-    depends_on:
-      - postgres
-      - redis
-    volumes:
-      - ./config/network:/app/config
-    cap_add:
-      - NET_ADMIN
-
-  # Lifecycle Manager Service
-  lifecycle-manager:
-    build:
-      context: ./services/lifecycle-manager
-      dockerfile: Dockerfile
-    container_name: acp-lifecycle-manager
-    restart: unless-stopped
-    environment:
-      - DATABASE_URL=postgresql://acp_user:acp_secure_password@postgres:5432/android_platform
-      - REDIS_URL=redis://redis:6379
-      - DOCKER_HOST=unix:///var/run/docker.sock
-    depends_on:
-      - postgres
-      - redis
-      - identity-manager
-      - location-manager
-      - network-manager
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./data/android-instances:/app/instances
-      - ./config:/app/config
-
-  # API Gateway
-  api-gateway:
-    build:
-      context: ./services/api-gateway
-      dockerfile: Dockerfile
-    container_name: acp-api-gateway
-    restart: unless-stopped
+    container_name: android-14-arm64-1
+    privileged: true
     ports:
-      - "3000:3000"
+      - "5555:5555"  # ADB port
+      - "8080:8080"  # Web interface (if available)
     environment:
-      - DATABASE_URL=postgresql://acp_user:acp_secure_password@postgres:5432/android_platform
-      - REDIS_URL=redis://redis:6379
-      - IDENTITY_SERVICE_URL=http://identity-manager:8001
-      - LOCATION_SERVICE_URL=http://location-manager:8002
-      - NETWORK_SERVICE_URL=http://network-manager:8003
-      - LIFECYCLE_SERVICE_URL=http://lifecycle-manager:8004
-      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
-    depends_on:
-      - postgres
-      - redis
-      - identity-manager
-      - location-manager
-      - network-manager
-      - lifecycle-manager
-
-  # Web Dashboard
-  web-dashboard:
+      - ANDROID_VERSION=14
+      - ARCH=arm64
+      - GPS_LATITUDE=40.7128
+      - GPS_LONGITUDE=-74.0060
+      - GPS_ALTITUDE=10.0
+      - GPS_ACCURACY=5.0
+      - DEVICE_PROFILE=samsung_galaxy_s24
+    volumes:
+      - android_data_14_arm64:/data
+      - ./modules/device-profiles:/system/etc/device-profiles:ro
+      - ./modules/bypass-tools:/system/etc/bypass-tools:ro
+      - ./modules/gps-injection:/system/etc/gps-injection:ro
+      - /dev/kvm:/dev/kvm  # KVM acceleration if available
+    tmpfs:
+      - /tmp:exec,size=1g
+    networks:
+      - android-network
+    healthcheck:
+      test: ["/usr/local/bin/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    
+  # Android 14 x86_64 Container
+  android-14-x86_64:
     build:
-      context: ./services/web-dashboard
+      context: ./docker/android-14/x86_64
       dockerfile: Dockerfile
-    container_name: acp-web-dashboard
-    restart: unless-stopped
+    container_name: android-14-x86_64-1
+    privileged: true
     ports:
-      - "8080:80"
+      - "5556:5555"  # ADB port
+      - "8081:8080"  # Web interface
     environment:
-      - REACT_APP_API_URL=http://localhost:3000
-    depends_on:
-      - api-gateway
-
-  # Monitoring Stack
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: acp-prometheus
-    restart: unless-stopped
-    ports:
-      - "9090:9090"
+      - ANDROID_VERSION=14
+      - ARCH=x86_64
+      - GPS_LATITUDE=34.0522
+      - GPS_LONGITUDE=-118.2437
+      - GPS_ALTITUDE=15.0
+      - GPS_ACCURACY=3.0
+      - DEVICE_PROFILE=google_pixel_8
     volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: acp-grafana
+      - android_data_14_x86_64:/data
+      - ./modules/device-profiles:/system/etc/device-profiles:ro
+      - ./modules/bypass-tools:/system/etc/bypass-tools:ro
+      - ./modules/gps-injection:/system/etc/gps-injection:ro
+      - /dev/kvm:/dev/kvm
+    tmpfs:
+      - /tmp:exec,size=1g
+    networks:
+      - android-network
+    healthcheck:
+      test: ["/usr/local/bin/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
+    
+  # Android 13 ARM64 Container
+  android-13-arm64:
+    build:
+      context: ./docker/android-13/arm64
+      dockerfile: Dockerfile
+    container_name: android-13-arm64-1
+    privileged: true
     ports:
-      - "3001:3000"
+      - "5557:5555"  # ADB port
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - ANDROID_VERSION=13
+      - ARCH=arm64
+      - GPS_LATITUDE=41.8781
+      - GPS_LONGITUDE=-87.6298
+      - GPS_ALTITUDE=5.0
+      - DEVICE_PROFILE=samsung_galaxy_s23
     volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
-      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - android_data_13_arm64:/data
+      - ./modules/device-profiles:/system/etc/device-profiles:ro
+      - ./modules/bypass-tools:/system/etc/bypass-tools:ro
+      - ./modules/gps-injection:/system/etc/gps-injection:ro
+    tmpfs:
+      - /tmp:exec,size=1g
+    networks:
+      - android-network
+    healthcheck:
+      test: ["/usr/local/bin/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    
+  # Android 12 Container with Gaming Focus
+  android-12-gaming:
+    build:
+      context: ./docker/android-12/arm64
+      dockerfile: Dockerfile
+    container_name: android-12-gaming-1
+    privileged: true
+    ports:
+      - "5558:5555"  # ADB port
+    environment:
+      - ANDROID_VERSION=12
+      - ARCH=arm64
+      - GPS_LATITUDE=37.7749
+      - GPS_LONGITUDE=-122.4194
+      - GPS_ALTITUDE=20.0
+      - DEVICE_PROFILE=oneplus_11
+      - GAMING_MODE=true
+    volumes:
+      - android_data_12_gaming:/data
+      - ./modules/device-profiles:/system/etc/device-profiles:ro
+      - ./modules/bypass-tools:/system/etc/bypass-tools:ro
+      - ./modules/gps-injection:/system/etc/gps-injection:ro
+    tmpfs:
+      - /tmp:exec,size=1g
+    networks:
+      - android-network
+    healthcheck:
+      test: ["/usr/local/bin/health-check.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
 
-volumes:
-  redis_data:
-  postgres_data:
-  prometheus_data:
-  grafana_data:
-
+# Network configuration
 networks:
-  default:
+  android-network:
     driver: bridge
     ipam:
+      driver: default
       config:
         - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+
+# Volume definitions
+volumes:
+  android_data_14_arm64:
+    driver: local
+  android_data_14_x86_64:
+    driver: local
+  android_data_13_arm64:
+    driver: local
+  android_data_12_gaming:
+    driver: local
