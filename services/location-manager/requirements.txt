@@ -1,0 +1,11 @@
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+sqlalchemy==2.0.23
+asyncpg==0.29.0
+redis==5.0.1
+python-multipart==0.0.6
+geopy==2.4.1
+numpy==1.25.2
+asyncio-mqtt==0.16.1
+websockets==12.0

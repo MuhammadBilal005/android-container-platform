@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: platform-config
+  namespace: android-platform
+data:
+  DATABASE_URL: "postgresql://acp_user:acp_secure_password@postgres:5432/android_platform"
+  REDIS_URL: "redis://redis:6379"
+  IDENTITY_SERVICE_URL: "http://identity-manager:8001"
+  LOCATION_SERVICE_URL: "http://location-manager:8002"
+  NETWORK_SERVICE_URL: "http://network-manager:8003"
+  LIFECYCLE_SERVICE_URL: "http://lifecycle-manager:8004"
+  JWT_SECRET: "production-jwt-secret-change-me"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: platform-secrets
+  namespace: android-platform
+type: Opaque
+data:
+  # Base64 encoded values
+  postgres-password: YWNwX3NlY3VyZV9wYXNzd29yZA==  # acp_secure_password
+  jwt-secret: cHJvZHVjdGlvbi1qd3Qtc2VjcmV0LWNoYW5nZS1tZQ==  # production-jwt-secret-change-me

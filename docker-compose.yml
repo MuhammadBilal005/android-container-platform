@@ -1,0 +1,182 @@
+version: '3.8'
+
+services:
+  # Redis for caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: acp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
+  # PostgreSQL for persistent data
+  postgres:
+    image: postgres:15-alpine
+    container_name: acp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: android_platform
+      POSTGRES_USER: acp_user
+      POSTGRES_PASSWORD: acp_secure_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+
+  # Identity Manager Service
+  identity-manager:
+    build:
+      context: ./services/identity-manager
+      dockerfile: Dockerfile
+    container_name: acp-identity-manager
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://acp_user:acp_secure_password@postgres:5432/android_platform
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./config/device-profiles:/app/device-profiles
+      - ./data/android-instances:/app/instances
+
+  # Location Manager Service  
+  location-manager:
+    build:
+      context: ./services/location-manager
+      dockerfile: Dockerfile
+    container_name: acp-location-manager
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://acp_user:acp_secure_password@postgres:5432/android_platform
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./data/android-instances:/app/instances
+
+  # Network Manager Service
+  network-manager:
+    build:
+      context: ./services/network-manager
+      dockerfile: Dockerfile
+    container_name: acp-network-manager
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://acp_user:acp_secure_password@postgres:5432/android_platform
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./config/network:/app/config
+    cap_add:
+      - NET_ADMIN
+
+  # Lifecycle Manager Service
+  lifecycle-manager:
+    build:
+      context: ./services/lifecycle-manager
+      dockerfile: Dockerfile
+    container_name: acp-lifecycle-manager
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://acp_user:acp_secure_password@postgres:5432/android_platform
+      - REDIS_URL=redis://redis:6379
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    depends_on:
+      - postgres
+      - redis
+      - identity-manager
+      - location-manager
+      - network-manager
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data/android-instances:/app/instances
+      - ./config:/app/config
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: acp-api-gateway
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://acp_user:acp_secure_password@postgres:5432/android_platform
+      - REDIS_URL=redis://redis:6379
+      - IDENTITY_SERVICE_URL=http://identity-manager:8001
+      - LOCATION_SERVICE_URL=http://location-manager:8002
+      - NETWORK_SERVICE_URL=http://network-manager:8003
+      - LIFECYCLE_SERVICE_URL=http://lifecycle-manager:8004
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+    depends_on:
+      - postgres
+      - redis
+      - identity-manager
+      - location-manager
+      - network-manager
+      - lifecycle-manager
+
+  # Web Dashboard
+  web-dashboard:
+    build:
+      context: ./services/web-dashboard
+      dockerfile: Dockerfile
+    container_name: acp-web-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      - REACT_APP_API_URL=http://localhost:3000
+    depends_on:
+      - api-gateway
+
+  # Monitoring Stack
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: acp-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: acp-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+
+volumes:
+  redis_data:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

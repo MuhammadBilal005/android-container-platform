@@ -1,0 +1,77 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # API Gateway
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Identity Manager
+  - job_name: 'identity-manager'
+    static_configs:
+      - targets: ['identity-manager:8001']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Location Manager
+  - job_name: 'location-manager'
+    static_configs:
+      - targets: ['location-manager:8002']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Network Manager
+  - job_name: 'network-manager'
+    static_configs:
+      - targets: ['network-manager:8003']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Lifecycle Manager
+  - job_name: 'lifecycle-manager'
+    static_configs:
+      - targets: ['lifecycle-manager:8004']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # PostgreSQL
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['postgres:5432']
+    scrape_interval: 30s
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis:6379']
+    scrape_interval: 30s
+
+  # Docker containers
+  - job_name: 'docker'
+    static_configs:
+      - targets: ['host.docker.internal:9323']
+    scrape_interval: 30s
+
+  # Node exporter for host metrics
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s

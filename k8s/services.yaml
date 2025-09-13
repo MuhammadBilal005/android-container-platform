@@ -1,0 +1,299 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-manager
+  namespace: android-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: identity-manager
+  template:
+    metadata:
+      labels:
+        app: identity-manager
+    spec:
+      containers:
+      - name: identity-manager
+        image: android-platform/identity-manager:latest
+        envFrom:
+        - configMapRef:
+            name: platform-config
+        ports:
+        - containerPort: 8001
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8001
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-manager
+  namespace: android-platform
+spec:
+  selector:
+    app: identity-manager
+  ports:
+    - port: 8001
+      targetPort: 8001
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: location-manager
+  namespace: android-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: location-manager
+  template:
+    metadata:
+      labels:
+        app: location-manager
+    spec:
+      containers:
+      - name: location-manager
+        image: android-platform/location-manager:latest
+        envFrom:
+        - configMapRef:
+            name: platform-config
+        ports:
+        - containerPort: 8002
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: location-manager
+  namespace: android-platform
+spec:
+  selector:
+    app: location-manager
+  ports:
+    - port: 8002
+      targetPort: 8002
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: network-manager
+  namespace: android-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: network-manager
+  template:
+    metadata:
+      labels:
+        app: network-manager
+    spec:
+      containers:
+      - name: network-manager
+        image: android-platform/network-manager:latest
+        envFrom:
+        - configMapRef:
+            name: platform-config
+        ports:
+        - containerPort: 8003
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+        securityContext:
+          privileged: true
+          capabilities:
+            add:
+              - NET_ADMIN
+              - SYS_ADMIN
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: network-manager
+  namespace: android-platform
+spec:
+  selector:
+    app: network-manager
+  ports:
+    - port: 8003
+      targetPort: 8003
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lifecycle-manager
+  namespace: android-platform
+spec:
+  replicas: 1  # Single instance for container orchestration
+  selector:
+    matchLabels:
+      app: lifecycle-manager
+  template:
+    metadata:
+      labels:
+        app: lifecycle-manager
+    spec:
+      serviceAccountName: lifecycle-manager-sa
+      containers:
+      - name: lifecycle-manager
+        image: android-platform/lifecycle-manager:latest
+        envFrom:
+        - configMapRef:
+            name: platform-config
+        ports:
+        - containerPort: 8004
+        volumeMounts:
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+        - name: android-data
+          mountPath: /data/android-instances
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+      - name: android-data
+        persistentVolumeClaim:
+          claimName: android-data-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lifecycle-manager
+  namespace: android-platform
+spec:
+  selector:
+    app: lifecycle-manager
+  ports:
+    - port: 8004
+      targetPort: 8004
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: android-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: android-platform/api-gateway:latest
+        envFrom:
+        - configMapRef:
+            name: platform-config
+        ports:
+        - containerPort: 3000
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "250m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway
+  namespace: android-platform
+spec:
+  type: LoadBalancer
+  selector:
+    app: api-gateway
+  ports:
+    - port: 80
+      targetPort: 3000
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: android-data-pvc
+  namespace: android-platform
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lifecycle-manager-sa
+  namespace: android-platform
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: lifecycle-manager-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "endpoints"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lifecycle-manager-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: lifecycle-manager-role
+subjects:
+- kind: ServiceAccount
+  name: lifecycle-manager-sa
+  namespace: android-platform
